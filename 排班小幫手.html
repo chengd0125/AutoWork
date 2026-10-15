@@ -185,8 +185,11 @@ td.le { box-shadow: inset 0 0 0 3px #e00000; }
   </section>
 
   <section class="card no-print">
-    <h2>資料備份</h2>
-    <p class="hint" style="margin-top:0">資料會自動存在這台電腦的瀏覽器裡。換電腦或清除瀏覽器資料前，請先下載備份。</p>
+    <h2>資料保存</h2>
+    <label style="display:flex;align-items:center;gap:8px;font-size:17px;cursor:pointer">
+      <input type="checkbox" id="persistToggle" style="width:20px;height:20px"> 在這台電腦記住班表（關掉網頁後再打開還在）
+    </label>
+    <p class="hint" id="persistHint"></p>
     <div class="tools" style="margin-top:8px">
       <button id="btnBackup">下載備份檔</button>
       <button id="btnRestore">從備份檔還原</button>
@@ -638,11 +641,40 @@ function defaultState() {
   if (now.getFullYear() === 2026) st.month = now.getMonth() + 1;
   return st;
 }
-let state;
-try { state = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { state = null; }
+// 是否把班表記在這台電腦：網頁版預設不記，直接開檔案（file://）預設要記
+const PERSIST_KEY = 'paiban-persist';
+let persist;
+try {
+  const p = localStorage.getItem(PERSIST_KEY);
+  persist = p === null ? location.protocol === 'file:' : p === '1';
+} catch (e) { persist = false; }
+let state, touched = false;
+if (persist) { try { state = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { state = null; } }
+else { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* 無法存取時略過 */ } }
 if (!state || state.version !== 1) state = defaultState();
 if (!state.cfgVer || state.cfgVer < 2) { state.cfg.maxCon = 3; state.cfgVer = 2; }
-function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* 無法儲存時仍可使用 */ } }
+function save() {
+  touched = true;
+  if (!persist) return;
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* 無法儲存時仍可使用 */ }
+}
+function setPersist(on) {
+  persist = on;
+  try {
+    localStorage.setItem(PERSIST_KEY, on ? '1' : '0');
+    if (on) localStorage.setItem(STORE_KEY, JSON.stringify(state)); else localStorage.removeItem(STORE_KEY);
+  } catch (e) { /* 無法存取時略過 */ }
+  renderPersist();
+}
+function renderPersist() {
+  document.getElementById('persistToggle').checked = persist;
+  document.getElementById('persistHint').textContent = persist
+    ? '目前會把班表記在這台電腦的瀏覽器裡（不會上傳到網路）。換電腦前請先下載備份。'
+    : '目前不會存檔：關掉或重新整理網頁，班表就會清掉。要留下來請先「匯出 Excel」或「下載備份檔」。';
+}
+window.addEventListener('beforeunload', e => {
+  if (!persist && touched) { e.preventDefault(); e.returnValue = ''; }
+});
 
 const keyOf = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
 const daysIn = (y, m) => new Date(y, m, 0).getDate();
@@ -1112,6 +1144,12 @@ $('restoreFile').onchange = async e => {
   e.target.value = '';
 };
 
+$('persistToggle').onchange = e => {
+  if (!e.target.checked && !confirm('關掉後，這台電腦記住的班表會被刪除，之後關掉網頁就不會保留。確定嗎？')) { e.target.checked = true; return; }
+  setPersist(e.target.checked);
+  toast(e.target.checked ? '已開始記住班表' : '已刪除記住的班表，之後不會存檔');
+};
+renderPersist();
 renderAll();
 </script>
 </body>
